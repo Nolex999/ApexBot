@@ -6,20 +6,21 @@ from api_routes import register_routes
 app = Flask(__name__)
 app.secret_key = 'apex_super_secret_key_123'  # Required for sessions
 
-# Initializing Extended Features
-from api_routes import register_routes
-register_routes(app, bot_state)
-
+# Shared state between Bot and Dashboard
 bot_state = {
     'status': 'INITIALIZING',
     'cycle': 0,
     'last_signal': None,
     'signals_history': [],
     'risk_manager': None,
+    'data_handler': None,
     'config': None,
     'started_at': datetime.now().isoformat(),
     'last_update': None,
 }
+
+# Initializing Extended Features
+register_routes(app, bot_state)
 
 LOGIN_HTML = r"""
 <!DOCTYPE html>
