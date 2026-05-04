@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+*.pyc
+.env
+apex_journal.json
+.vscode/
+*.log
