@@ -30,10 +30,20 @@ def bot_loop(dh, strat, rm, ex, log):
             bot_state['last_update'] = datetime.now().isoformat()
             log.info(f"--- Cycle #{cycle} ---")
             
-            # 1. Fetch data
+            # 0. Check if IP is banned — skip cycle if so
+            if dh._is_banned():
+                remaining = dh._ban_until - time.time()
+                bot_state['status'] = f'BANNED ({remaining/60:.0f}min left)'
+                log.warn(f"⛔ IP ban actif — skip cycle, retry dans 5min ({remaining/60:.0f}min restantes)")
+                time.sleep(300)  # Wait 5 min before retrying
+                continue
+            
+            # 1. Fetch data (with caching)
             df_fast = dh.fetch_ohlcv(Config.SYMBOL, Config.TIMEFRAME_FAST, 300)
             df_slow = dh.fetch_ohlcv(Config.SYMBOL, Config.TIMEFRAME_SLOW, 300)
             current_price = dh.fetch_price(Config.SYMBOL)
+            
+            bot_state['status'] = 'RUNNING'
             
             # 2. Check existing positions
             ex.check_exits(current_price)
@@ -63,6 +73,8 @@ def bot_loop(dh, strat, rm, ex, log):
             # 5. Stats every 10 cycles
             if cycle % 10 == 0:
                 log.stats(rm.stats())
+                dh_stats = dh.get_stats()
+                log.info(f"📊 DataHandler: {dh_stats['request_count']} requests, {dh_stats['cache_entries']} cached")
             
             time.sleep(Config.LOOP_INTERVAL)
         
@@ -75,7 +87,8 @@ def bot_loop(dh, strat, rm, ex, log):
             log.error(f"Erreur cycle: {e}")
             traceback.print_exc()
             bot_state['status'] = 'ERROR'
-            time.sleep(30)
+            # Longer backoff on errors to avoid ban amplification
+            time.sleep(60)
             bot_state['status'] = 'RUNNING'
 
 

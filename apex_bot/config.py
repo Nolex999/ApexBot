@@ -38,5 +38,5 @@ class Config:
     RR_RATIO = 2.5
     
     # ===== EXECUTION =====
-    LOOP_INTERVAL = int(os.getenv("APEX_LOOP_INTERVAL", "60"))
+    LOOP_INTERVAL = int(os.getenv("APEX_LOOP_INTERVAL", "300"))  # 5min — anti rate-limit
     SLIPPAGE_TOLERANCE = 0.002
