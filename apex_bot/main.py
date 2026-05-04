@@ -107,8 +107,9 @@ def main():
     rm = RiskManager(Config.INITIAL_CAPITAL)
     ex = Executor(dh, rm, log)
     
-    # Share risk_manager with dashboard
+    # Share risk_manager and data_handler with dashboard
     bot_state['risk_manager'] = rm
+    bot_state['data_handler'] = dh
     bot_state['config'] = Config
     
     # Start bot loop in background thread
