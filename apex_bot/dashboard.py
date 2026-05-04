@@ -1,22 +1,31 @@
 """APEX BOT - Dashboard Web (Clean Fintech Design with Login & Theme/Currency)"""
-from flask import Flask, jsonify, render_template_string, request, session, redirect, url_for
+
+from flask import (
+    Flask,
+    jsonify,
+    render_template_string,
+    request,
+    session,
+    redirect,
+    url_for,
+)
 from datetime import datetime
 from api_routes import register_routes
 
 app = Flask(__name__)
-app.secret_key = 'apex_super_secret_key_123'  # Required for sessions
+app.secret_key = "apex_super_secret_key_123"  # Required for sessions
 
 # Shared state between Bot and Dashboard
 bot_state = {
-    'status': 'INITIALIZING',
-    'cycle': 0,
-    'last_signal': None,
-    'signals_history': [],
-    'risk_manager': None,
-    'data_handler': None,
-    'config': None,
-    'started_at': datetime.now().isoformat(),
-    'last_update': None,
+    "status": "INITIALIZING",
+    "cycle": 0,
+    "last_signal": None,
+    "signals_history": [],
+    "risk_manager": None,
+    "data_handler": None,
+    "config": None,
+    "started_at": datetime.now().isoformat(),
+    "last_update": None,
 }
 
 # Initializing Extended Features
@@ -224,6 +233,42 @@ DASHBOARD_HTML = r"""
                             <div class="card-header"><div class="card-title">Dernier Signal</div></div>
                             <div id="lastSignalBox" style="display: flex; flex-direction: column; gap: 1rem; height: 100%; justify-content: center; text-align: center;">
                                 <div class="metric-sub">En attente de données...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Binance API Health Monitor -->
+                    <div class="col-12">
+                        <div class="card">
+                            <div class="card-header">
+                                <div class="card-title">🛡️ Binance API Health (Anti-Ban Monitor)</div>
+                                <span class="tag" id="wsStatusTag" style="background: var(--success-dim); color: var(--success)">WS ●</span>
+                            </div>
+                            <div class="grid" style="gap: 1rem;">
+                                <div class="col-3">
+                                    <div class="metric-sub">WebSocket Stream</div>
+                                    <div id="wsStatus" style="font-weight: 700; font-size: 1.1rem;">—</div>
+                                    <div class="metric-sub" id="wsMsgs">0 msgs</div>
+                                </div>
+                                <div class="col-3">
+                                    <div class="metric-sub">Binance Weight (1m)</div>
+                                    <div id="binanceWeight" style="font-weight: 700; font-size: 1.1rem;">0 / 1200</div>
+                                    <div style="background: var(--border); border-radius: 4px; height: 6px; margin-top: 4px; overflow: hidden;">
+                                        <div id="weightBar" style="height: 100%; background: var(--success); width: 0%; transition: 0.3s;"></div>
+                                    </div>
+                                </div>
+                                <div class="col-3">
+                                    <div class="metric-sub">Rate Limit Local</div>
+                                    <div id="bucketUsage" style="font-weight: 700; font-size: 1.1rem;">0 / 200</div>
+                                    <div style="background: var(--border); border-radius: 4px; height: 6px; margin-top: 4px; overflow: hidden;">
+                                        <div id="bucketBar" style="height: 100%; background: var(--accent); width: 0%; transition: 0.3s;"></div>
+                                    </div>
+                                </div>
+                                <div class="col-3">
+                                    <div class="metric-sub">Statut IP</div>
+                                    <div id="banStatus" class="up" style="font-weight: 700; font-size: 1.1rem;">✅ Clean</div>
+                                    <div class="metric-sub" id="restCount">0 REST reqs</div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -495,6 +540,39 @@ DASHBOARD_HTML = r"""
                     document.getElementById('r_loss').value = (rc.max_daily_loss * 100).toFixed(1);
                 }
                 
+                // ===== API Health Monitor =====
+                if(e.data_handler) {
+                    const dh = e.data_handler;
+                    const wsStats = dh.ws_stats || {};
+                    const wsOk = dh.ws_connected;
+                    
+                    document.getElementById('wsStatus').textContent = wsOk ? '✅ Connected' : '❌ Disconnected';
+                    document.getElementById('wsStatus').className = wsOk ? 'up' : 'dn';
+                    document.getElementById('wsStatusTag').textContent = wsOk ? 'WS LIVE ●' : 'WS DOWN';
+                    document.getElementById('wsStatusTag').style.background = wsOk ? 'var(--success-dim)' : 'var(--danger-dim)';
+                    document.getElementById('wsStatusTag').style.color = wsOk ? 'var(--success)' : 'var(--danger)';
+                    document.getElementById('wsMsgs').textContent = (wsStats.msg_count || 0) + ' msgs reçus';
+                    
+                    const wPct = dh.binance_weight_pct || 0;
+                    document.getElementById('binanceWeight').textContent = (dh.binance_weight_1m||0) + ' / 1200';
+                    document.getElementById('weightBar').style.width = Math.min(100, wPct) + '%';
+                    document.getElementById('weightBar').style.background = wPct > 75 ? 'var(--danger)' : wPct > 50 ? 'var(--warning)' : 'var(--success)';
+                    
+                    const bPct = dh.bucket_pct || 0;
+                    document.getElementById('bucketUsage').textContent = (dh.bucket_used||0) + ' / ' + (dh.bucket_max||200);
+                    document.getElementById('bucketBar').style.width = Math.min(100, bPct) + '%';
+                    document.getElementById('bucketBar').style.background = bPct > 75 ? 'var(--danger)' : bPct > 50 ? 'var(--warning)' : 'var(--accent)';
+                    
+                    if(dh.is_banned) {
+                        document.getElementById('banStatus').textContent = '🚫 BANNED (' + Math.round(dh.ban_remaining) + 's)';
+                        document.getElementById('banStatus').className = 'dn';
+                    } else {
+                        document.getElementById('banStatus').textContent = '✅ Clean';
+                        document.getElementById('banStatus').className = 'up';
+                    }
+                    document.getElementById('restCount').textContent = (dh.request_count||0) + ' REST reqs';
+                }
+
                 document.getElementById('perfPF').textContent = e.performance.profit_factor.toFixed(2);
                 document.getElementById('perfDD').textContent = '$' + Math.abs(e.performance.max_drawdown).toFixed(2);
                 document.getElementById('perfBest').textContent = '+$' + e.performance.best_trade.toFixed(2);
@@ -585,82 +663,106 @@ DASHBOARD_HTML = r"""
 </html>
 """
 
-@app.route('/login', methods=['GET', 'POST'])
+
+@app.route("/login", methods=["GET", "POST"])
 def login():
     error = None
-    if request.method == 'POST':
+    if request.method == "POST":
         # Simple hardcoded credentials as requested
-        if request.form.get('username') == 'nolex' and request.form.get('password') == 'apexbot':
-            session['logged_in'] = True
-            return redirect(url_for('index'))
+        if (
+            request.form.get("username") == "nolex"
+            and request.form.get("password") == "apexbot"
+        ):
+            session["logged_in"] = True
+            return redirect(url_for("index"))
         else:
-            error = 'Identifiants ou mot de passe incorrects.'
+            error = "Identifiants ou mot de passe incorrects."
     return render_template_string(LOGIN_HTML, error=error)
 
-@app.route('/logout')
-def logout():
-    session.pop('logged_in', None)
-    return redirect(url_for('login'))
 
-@app.route('/')
+@app.route("/logout")
+def logout():
+    session.pop("logged_in", None)
+    return redirect(url_for("login"))
+
+
+@app.route("/")
 def index():
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
+    if not session.get("logged_in"):
+        return redirect(url_for("login"))
     return render_template_string(DASHBOARD_HTML)
 
-@app.route('/api/status')
+
+@app.route("/api/status")
 def api_status():
-    if not session.get('logged_in'):
-        return jsonify({'error': 'Unauthorized'}), 401
-        
+    if not session.get("logged_in"):
+        return jsonify({"error": "Unauthorized"}), 401
+
     from config import Config
 
     stats = {}
     open_trades = []
     closed_trades = []
 
-    rm = bot_state.get('risk_manager')
+    rm = bot_state.get("risk_manager")
     if rm:
         stats = rm.stats()
-        open_trades = [{
-            'id': t['id'], 'symbol': t['symbol'], 'side': t['side'],
-            'entry': t['entry'], 'stop': t['stop'], 'target': t['target'],
-            'size': t['size'], 'risk_amount': t['risk_amount'],
-            'opened_at': str(t['opened_at']),
-        } for t in rm.open_trades]
-        closed_trades = [{
-            'id': t['id'], 'side': t['side'], 'entry': t['entry'],
-            'exit': t.get('exit', 0), 'pnl': t.get('pnl', 0),
-            'exit_reason': t.get('exit_reason', ''),
-            'closed_at': str(t.get('closed_at', '')),
-        } for t in rm.closed_trades]
+        open_trades = [
+            {
+                "id": t["id"],
+                "symbol": t["symbol"],
+                "side": t["side"],
+                "entry": t["entry"],
+                "stop": t["stop"],
+                "target": t["target"],
+                "size": t["size"],
+                "risk_amount": t["risk_amount"],
+                "opened_at": str(t["opened_at"]),
+            }
+            for t in rm.open_trades
+        ]
+        closed_trades = [
+            {
+                "id": t["id"],
+                "side": t["side"],
+                "entry": t["entry"],
+                "exit": t.get("exit", 0),
+                "pnl": t.get("pnl", 0),
+                "exit_reason": t.get("exit_reason", ""),
+                "closed_at": str(t.get("closed_at", "")),
+            }
+            for t in rm.closed_trades
+        ]
 
-    return jsonify({
-        'status': bot_state['status'],
-        'cycle': bot_state['cycle'],
-        'started_at': bot_state['started_at'],
-        'last_update': bot_state['last_update'],
-        'last_signal': bot_state['last_signal'],
-        'signals_history': bot_state['signals_history'][-100:],
-        'stats': stats,
-        'open_trades': open_trades,
-        'closed_trades': closed_trades,
-        'config': {
-            'mode': Config.MODE,
-            'exchange': Config.EXCHANGE,
-            'symbol': Config.SYMBOL,
-            'tf_fast': Config.TIMEFRAME_FAST,
-            'tf_slow': Config.TIMEFRAME_SLOW,
-            'initial_capital': Config.INITIAL_CAPITAL,
-            'risk_per_trade': Config.RISK_PER_TRADE,
-            'max_heat': Config.MAX_PORTFOLIO_HEAT,
-            'max_daily_loss': Config.MAX_DAILY_LOSS,
-            'rr_ratio': Config.RR_RATIO,
-            'atr_stop_mult': Config.ATR_STOP_MULTIPLIER,
-            'loop_interval': Config.LOOP_INTERVAL,
+    return jsonify(
+        {
+            "status": bot_state["status"],
+            "cycle": bot_state["cycle"],
+            "started_at": bot_state["started_at"],
+            "last_update": bot_state["last_update"],
+            "last_signal": bot_state["last_signal"],
+            "signals_history": bot_state["signals_history"][-100:],
+            "stats": stats,
+            "open_trades": open_trades,
+            "closed_trades": closed_trades,
+            "config": {
+                "mode": Config.MODE,
+                "exchange": Config.EXCHANGE,
+                "symbol": Config.SYMBOL,
+                "tf_fast": Config.TIMEFRAME_FAST,
+                "tf_slow": Config.TIMEFRAME_SLOW,
+                "initial_capital": Config.INITIAL_CAPITAL,
+                "risk_per_trade": Config.RISK_PER_TRADE,
+                "max_heat": Config.MAX_PORTFOLIO_HEAT,
+                "max_daily_loss": Config.MAX_DAILY_LOSS,
+                "rr_ratio": Config.RR_RATIO,
+                "atr_stop_mult": Config.ATR_STOP_MULTIPLIER,
+                "loop_interval": Config.LOOP_INTERVAL,
+            },
         }
-    })
+    )
 
-@app.route('/health')
+
+@app.route("/health")
 def health():
-    return jsonify({'status': 'ok', 'cycle': bot_state['cycle']})
+    return jsonify({"status": "ok", "cycle": bot_state["cycle"]})
