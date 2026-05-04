@@ -141,16 +141,8 @@ class DataHandler:
         exchange = self.exchange
         original_fetch = exchange.fetch
 
-        def fetch_with_tracking(
-            url,
-            method="GET",
-            headers=None,
-            body=None,
-            params=None,
-            config=None,
-            context=None,
-        ):
-            result = original_fetch(url, method, headers, body, params, config, context)
+        def fetch_with_tracking(*args, **kwargs):
+            result = original_fetch(*args, **kwargs)
             try:
                 last_headers = getattr(exchange, "last_response_headers", None) or {}
                 # Les clés peuvent être lowercase selon l'implémentation
