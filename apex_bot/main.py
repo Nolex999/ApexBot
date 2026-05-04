@@ -119,6 +119,10 @@ def main():
     # Start Flask web dashboard (main thread)
     port = int(os.getenv('PORT', 8080))
     log.success(f"Dashboard web démarré sur le port {port}")
+    
+    import logging
+    logging.getLogger('werkzeug').setLevel(logging.ERROR)
+    
     app.run(host='0.0.0.0', port=port, debug=False)
 
 

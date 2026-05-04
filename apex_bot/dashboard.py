@@ -185,6 +185,16 @@ DASHBOARD_HTML = r"""
 </div>
 
 <script>
+function formatTime(isoString) {
+    if (!isoString || isoString === '—') return '—';
+    const dt = new Date(isoString.endsWith('Z') ? isoString : isoString + 'Z');
+    return dt.toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+function formatDate(isoString) {
+    if (!isoString || isoString === '—') return '—';
+    const dt = new Date(isoString.endsWith('Z') ? isoString : isoString + 'Z');
+    return dt.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' });
+}
 let equityData = [];
 
 function drawEquity(data) {
@@ -263,9 +273,9 @@ async function fetchData() {
         document.getElementById('statusText').textContent = d.status;
         pill.className = 'pill ' + (st === 'RUNNING' ? 'pill-live' : st.includes('ERROR') || st.includes('BAN') ? 'pill-err' : 'pill-init');
         document.getElementById('modeTag').textContent = d.config ? d.config.mode + ' · ' + d.config.symbol : '—';
-        document.getElementById('lastUpdate').textContent = d.last_update ? d.last_update.slice(11, 19) : '—';
+        document.getElementById('lastUpdate').textContent = d.last_update ? formatTime(d.last_update) : '—';
         document.getElementById('cycle').textContent = d.cycle || '0';
-        document.getElementById('uptime').textContent = 'Since ' + (d.started_at || '—').slice(0, 10);
+        document.getElementById('uptime').textContent = 'Since ' + (d.started_at ? formatDate(d.started_at) : '—');
 
         // Stats
         if (d.stats) {
@@ -353,7 +363,7 @@ async function fetchData() {
                     <td>$${(t.exit||0).toFixed(2)}</td>
                     <td class="${t.pnl>=0?'up':'dn'}">${t.pnl>=0?'+':''}$${(t.pnl||0).toFixed(2)}</td>
                     <td><span class="tag ${t.exit_reason==='TAKE_PROFIT'?'t-tp':'t-sl'}">${t.exit_reason||'—'}</span></td>
-                    <td>${(t.closed_at||'—').slice(0,19)}</td>
+                    <td>${t.closed_at ? formatDate(t.closed_at) + ' ' + formatTime(t.closed_at) : '—'}</td>
                 </tr>`).join('');
         } else {
             document.getElementById('closedCount').textContent = '0';
@@ -364,7 +374,7 @@ async function fetchData() {
         if (d.signals_history && d.signals_history.length > 0) {
             document.getElementById('signalsBody').innerHTML = d.signals_history.slice().reverse().slice(0, 50).map(s => `
                 <tr>
-                    <td>${(s.time||'—').slice(11,19)}</td>
+                    <td>${formatTime(s.time)}</td>
                     <td><span class="tag ${s.signal==='BUY'?'t-buy':s.signal==='SELL'?'t-sell':'t-hold'}">${s.signal}</span></td>
                     <td>$${(s.price||0).toFixed(2)}</td>
                     <td>${(s.rsi||0).toFixed(1)}</td>
