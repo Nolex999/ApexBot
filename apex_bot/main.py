@@ -110,7 +110,6 @@ def tick_loop():
     rm = _shared["rm"]
 
     cycle = 0
-    last_fallback_analysis = 0
     last_heartbeat = 0
 
     while True:
@@ -134,9 +133,16 @@ def tick_loop():
                 time.sleep(2)
                 continue
 
+            # ===== ANALYSE À CHAQUE CYCLE (Tick-by-Tick) =====
+            # Puisque nous sommes en WS, on peut se permettre d'analyser le marché
+            # à chaque tick sans risquer de ban IP.
+            if _shared["analyze_lock"].acquire(blocking=False):
+                try:
+                    run_analysis_cycle()
+                finally:
+                    _shared["analyze_lock"].release()
+
             # ===== Check SL/TP à CHAQUE TICK =====
-            # C'est critique : les exits doivent être instantanés pour ne pas
-            # louper un mouvement. Grâce au WS, on a le prix à la ms.
             if rm.open_trades:
                 ex.check_exits(current_price)
 
@@ -147,32 +153,19 @@ def tick_loop():
             else:
                 bot_state["status"] = "RUNNING (REST fallback)"
 
-            # ===== Fallback analyse si WS down trop longtemps =====
-            # Si le WS est déco depuis >5min, on force une analyse REST
-            # (pour ne pas rester aveugle)
-            now = time.time()
-            if not ws_ok and (now - last_fallback_analysis) > 300:
-                log.warn("⚠️ WS down depuis >5min — analyse REST de secours")
-                if _shared["analyze_lock"].acquire(blocking=False):
-                    try:
-                        run_analysis_cycle()
-                        last_fallback_analysis = now
-                    finally:
-                        _shared["analyze_lock"].release()
-
             # ===== Heartbeat stats toutes les 2min =====
+            now = time.time()
             if (now - last_heartbeat) > 120:
                 ws_stats = dh.ws.get_stats() if dh.ws else {}
                 dh_stats = dh.get_stats()
                 log.info(
                     f"💓 price=${current_price:.2f} | "
                     f"WS={'✅' if ws_ok else '❌'} msgs={ws_stats.get('msg_count', 0)} | "
-                    f"REST={dh_stats['request_count']} reqs, weight={dh_stats['binance_weight_1m']}/1200 | "
-                    f"bucket={dh_stats['bucket_used']}/{dh_stats['bucket_max']}"
+                    f"REST={dh_stats['request_count']} reqs, weight={dh_stats['binance_weight_1m']}/1200"
                 )
                 last_heartbeat = now
 
-            time.sleep(1)  # tick rapide grâce au WS (pas d'appel REST)
+            time.sleep(1)  # Vitesse de cycle ajustable
 
         except KeyboardInterrupt:
             log.warn("Arrêt manuel")
