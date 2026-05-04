@@ -1,8 +1,9 @@
-"""APEX BOT - Dashboard Web (Clean Fintech Design)"""
-from flask import Flask, jsonify, render_template_string
+"""APEX BOT - Dashboard Web (Clean Fintech Design with Login & Theme/Currency)"""
+from flask import Flask, jsonify, render_template_string, request, session, redirect, url_for
 from datetime import datetime
 
 app = Flask(__name__)
+app.secret_key = 'apex_super_secret_key_123'  # Required for sessions
 
 bot_state = {
     'status': 'INITIALIZING',
@@ -15,6 +16,40 @@ bot_state = {
     'last_update': None,
 }
 
+LOGIN_HTML = r"""
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>APEX — Login</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', system-ui, sans-serif; background: #0c0d12; color: #e8e9ed; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .box { background: #15161e; padding: 40px; border-radius: 12px; border: 1px solid #23252f; width: 100%; max-width: 340px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .logo { font-size: 24px; font-weight: 700; margin-bottom: 24px; letter-spacing: -0.5px; }
+        .logo span { color: #6366f1; margin-right: 2px; }
+        input { width: 100%; padding: 12px 14px; margin-bottom: 16px; background: #0c0d12; border: 1px solid #2a2c38; color: white; border-radius: 8px; box-sizing: border-box; font-family: 'Inter'; font-size: 14px; transition: border-color 0.2s; }
+        input:focus { outline: none; border-color: #6366f1; }
+        button { width: 100%; padding: 12px; background: #6366f1; border: none; color: white; font-weight: 600; border-radius: 8px; cursor: pointer; font-family: 'Inter'; font-size: 14px; transition: background 0.2s; }
+        button:hover { background: #4f46e5; }
+        .err { color: #ef4444; font-size: 13px; margin-bottom: 16px; background: rgba(239, 68, 68, 0.1); padding: 8px; border-radius: 6px; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <div class="logo"><span>A</span>APEX</div>
+        {% if error %}<div class="err">{{ error }}</div>{% endif %}
+        <form method="POST">
+            <input type="text" name="username" placeholder="Identifiant" required autofocus>
+            <input type="password" name="password" placeholder="Mot de passe" required>
+            <button type="submit">Connexion</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
+
 DASHBOARD_HTML = r"""
 <!DOCTYPE html>
 <html lang="fr">
@@ -22,7 +57,6 @@ DASHBOARD_HTML = r"""
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>APEX — Trading Dashboard</title>
-    <meta name="description" content="APEX automated trading bot dashboard">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
@@ -36,7 +70,16 @@ DASHBOARD_HTML = r"""
             --amber:#eab308;--amber-dim:#332e0a;
             --radius:10px;
         }
-        body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased}
+        :root.light-theme {
+            --bg:#f8fafc;--bg-raised:#ffffff;--bg-hover:#f1f5f9;
+            --border:#e2e8f0;--border-light:#cbd5e1;
+            --text:#0f172a;--text-2:#475569;--text-3:#94a3b8;
+            --green:#059669;--green-dim:#d1fae5;
+            --red:#dc2626;--red-dim:#fee2e2;
+            --blue:#2563eb;--blue-dim:#dbeafe;
+            --amber:#d97706;--amber-dim:#fef3c7;
+        }
+        body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased;transition:background 0.3s, color 0.3s;}
 
         .wrap{max-width:1320px;margin:0 auto;padding:20px 24px}
 
@@ -46,13 +89,16 @@ DASHBOARD_HTML = r"""
         .logo{font-size:18px;font-weight:700;letter-spacing:-.3px;color:var(--text)}
         .logo span{color:var(--blue);margin-right:2px}
         .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:600}
-        .pill-live{background:var(--green-dim);color:var(--green);border:1px solid #1a5c2e}
-        .pill-err{background:var(--red-dim);color:var(--red);border:1px solid #5c1a1a}
-        .pill-init{background:var(--blue-dim);color:var(--blue);border:1px solid #312e81}
+        .pill-live{background:var(--green-dim);color:var(--green);border:1px solid var(--green-dim)}
+        .pill-err{background:var(--red-dim);color:var(--red);border:1px solid var(--red-dim)}
+        .pill-init{background:var(--blue-dim);color:var(--blue);border:1px solid var(--blue-dim)}
         .dot{width:6px;height:6px;border-radius:50%;background:currentColor;animation:blink 2s infinite}
         @keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
-        .hdr-right{display:flex;gap:20px;font-size:12px;color:var(--text-3)}
+        
+        .hdr-right{display:flex;align-items:center;gap:16px;font-size:12px;color:var(--text-3)}
         .hdr-right b{color:var(--text-2);font-weight:500}
+        .btn-icon { background: var(--bg-raised); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 6px; cursor: pointer; font-size: 13px; transition: 0.2s; text-decoration: none;}
+        .btn-icon:hover { background: var(--bg-hover); }
 
         /* ── Metric Cards ── */
         .metrics{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px}
@@ -84,14 +130,14 @@ DASHBOARD_HTML = r"""
         /* ── Tables ── */
         .tw{overflow-x:auto}
         table{width:100%;border-collapse:collapse}
-        th{text-align:left;padding:8px 20px;font-size:10px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;background:rgba(0,0,0,.2)}
+        th{text-align:left;padding:8px 20px;font-size:10px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;background:rgba(0,0,0,.05)}
         td{padding:10px 20px;font-size:12px;color:var(--text-2);border-bottom:1px solid var(--border)}
         tr:last-child td{border-bottom:none}
-        tr:hover td{background:rgba(255,255,255,.015)}
+        tr:hover td{background:rgba(128,128,128,.05)}
         .tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;letter-spacing:.3px}
         .t-buy{background:var(--green-dim);color:var(--green)}
         .t-sell{background:var(--red-dim);color:var(--red)}
-        .t-hold{background:#1a1b25;color:var(--text-3)}
+        .t-hold{background:var(--border);color:var(--text-3)}
         .t-tp{background:var(--green-dim);color:var(--green)}
         .t-sl{background:var(--red-dim);color:var(--red)}
 
@@ -100,7 +146,7 @@ DASHBOARD_HTML = r"""
         .sig-row{display:flex;align-items:center;gap:16px;margin-bottom:14px}
         .sig-type{font-size:22px;font-weight:700}
         .sig-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px}
-        .sg-item{background:rgba(0,0,0,.2);padding:10px 12px;border-radius:8px}
+        .sg-item{background:rgba(128,128,128,.08);padding:10px 12px;border-radius:8px}
         .sg-label{font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}
         .sg-val{font-size:14px;font-weight:600}
 
@@ -125,8 +171,11 @@ DASHBOARD_HTML = r"""
             <div class="pill pill-init" id="statusPill"><span class="dot"></span><span id="statusText">Initializing</span></div>
         </div>
         <div class="hdr-right">
+            <button id="currencyToggle" class="btn-icon" title="Toggle Currency">€</button>
+            <button id="themeToggle" class="btn-icon" title="Toggle Theme">☀️</button>
             <span><b id="modeTag">—</b></span>
             <span id="lastUpdate">—</span>
+            <a href="/logout" class="btn-icon">Logout</a>
         </div>
     </div>
 
@@ -185,6 +234,7 @@ DASHBOARD_HTML = r"""
 </div>
 
 <script>
+// Format Utils
 function formatTime(isoString) {
     if (!isoString || isoString === '—') return '—';
     const dt = new Date(isoString.endsWith('Z') ? isoString : isoString + 'Z');
@@ -195,6 +245,46 @@ function formatDate(isoString) {
     const dt = new Date(isoString.endsWith('Z') ? isoString : isoString + 'Z');
     return dt.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' });
 }
+
+// State toggles
+let isLight = localStorage.getItem('apex_theme') === 'light';
+let isEuro = localStorage.getItem('apex_currency') === 'EUR';
+const EUR_RATE = 0.92; // Fixed exchange rate for display
+
+// Initialize Theme
+if (isLight) document.documentElement.classList.add('light-theme');
+document.getElementById('themeToggle').textContent = isLight ? '🌙' : '☀️';
+document.getElementById('currencyToggle').textContent = isEuro ? '$' : '€';
+
+document.getElementById('themeToggle').addEventListener('click', () => {
+    isLight = !isLight;
+    if (isLight) {
+        document.documentElement.classList.add('light-theme');
+        localStorage.setItem('apex_theme', 'light');
+    } else {
+        document.documentElement.classList.remove('light-theme');
+        localStorage.setItem('apex_theme', 'dark');
+    }
+    document.getElementById('themeToggle').textContent = isLight ? '🌙' : '☀️';
+    if (equityData.length) drawEquity(equityData); // Redraw chart with new colors
+});
+
+let lastFetchedData = null;
+document.getElementById('currencyToggle').addEventListener('click', () => {
+    isEuro = !isEuro;
+    localStorage.setItem('apex_currency', isEuro ? 'EUR' : 'USD');
+    document.getElementById('currencyToggle').textContent = isEuro ? '$' : '€';
+    if (lastFetchedData) renderData(lastFetchedData);
+});
+
+function formatMoney(value) {
+    if (typeof value !== 'number') return '—';
+    if (isEuro) {
+        return '€' + (value * EUR_RATE).toFixed(2);
+    }
+    return '$' + value.toFixed(2);
+}
+
 let equityData = [];
 
 function drawEquity(data) {
@@ -205,8 +295,14 @@ function drawEquity(data) {
     ctx.scale(2, 2);
     const W = c.clientWidth, H = 140;
     ctx.clearRect(0, 0, W, H);
+    
+    // Get colors from CSS vars
+    const style = getComputedStyle(document.body);
+    const gridColor = style.getPropertyValue('--border').trim() || '#23252f';
+    const textColor = style.getPropertyValue('--text-3').trim() || '#5f6170';
+
     if (data.length < 2) {
-        ctx.fillStyle = '#5f6170';
+        ctx.fillStyle = textColor;
         ctx.font = '12px Inter, system-ui';
         ctx.textAlign = 'center';
         ctx.fillText('Not enough data', W/2, H/2);
@@ -219,24 +315,34 @@ function drawEquity(data) {
     const py = (v) => H - 16 - ((v - min) / range) * (H - 32);
 
     // Grid lines
-    ctx.strokeStyle = '#23252f';
+    ctx.strokeStyle = gridColor;
     ctx.lineWidth = 0.5;
     for (let i = 0; i < 4; i++) {
         const y = 16 + i * ((H - 32) / 3);
         ctx.beginPath(); ctx.moveTo(20, y); ctx.lineTo(W - 20, y); ctx.stroke();
         const val = max - (i / 3) * range;
-        ctx.fillStyle = '#5f6170';
+        ctx.fillStyle = textColor;
         ctx.font = '9px Inter';
         ctx.textAlign = 'right';
-        ctx.fillText('$' + val.toFixed(0), W - 4, y + 3);
+        ctx.fillText(formatMoney(val).replace('.00', ''), W - 4, y + 3);
     }
 
     // Fill
     const lastVal = data[data.length - 1];
     const firstVal = data[0];
     const isUp = lastVal >= firstVal;
-    const color = isUp ? '#22c55e' : '#ef4444';
-    const colorDim = isUp ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)';
+    
+    const colorUp = style.getPropertyValue('--green').trim() || '#22c55e';
+    const colorDn = style.getPropertyValue('--red').trim() || '#ef4444';
+    const color = isUp ? colorUp : colorDn;
+    
+    // Create subtle gradient fill
+    const fillStyle = isUp ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)';
+    if (isLight) {
+        ctx.fillStyle = isUp ? 'rgba(5,150,105,0.08)' : 'rgba(220,38,38,0.08)';
+    } else {
+        ctx.fillStyle = fillStyle;
+    }
 
     ctx.beginPath();
     ctx.moveTo(px(0), py(data[0]));
@@ -244,7 +350,6 @@ function drawEquity(data) {
     ctx.lineTo(px(data.length - 1), H - 16);
     ctx.lineTo(px(0), H - 16);
     ctx.closePath();
-    ctx.fillStyle = colorDim;
     ctx.fill();
 
     // Line
@@ -262,126 +367,139 @@ function drawEquity(data) {
     ctx.fill();
 }
 
+function renderData(d) {
+    // Status
+    const pill = document.getElementById('statusPill');
+    const st = (d.status || '').toUpperCase();
+    document.getElementById('statusText').textContent = d.status;
+    pill.className = 'pill ' + (st === 'RUNNING' ? 'pill-live' : st.includes('ERROR') || st.includes('BAN') ? 'pill-err' : 'pill-init');
+    document.getElementById('modeTag').textContent = d.config ? d.config.mode + ' · ' + d.config.symbol : '—';
+    document.getElementById('lastUpdate').textContent = d.last_update ? formatTime(d.last_update) : '—';
+    document.getElementById('cycle').textContent = d.cycle || '0';
+    document.getElementById('uptime').textContent = 'Since ' + (d.started_at ? formatDate(d.started_at) : '—');
+
+    // Stats
+    if (d.stats) {
+        const s = d.stats;
+        document.getElementById('capital').textContent = formatMoney(s.capital);
+        document.getElementById('capitalInit').textContent = 'Initial: ' + (d.config ? formatMoney(d.config.initial_capital) : '—');
+        
+        const pE = document.getElementById('pnl');
+        pE.textContent = (s.total_pnl >= 0 ? '+' : '') + formatMoney(Math.abs(s.total_pnl));
+        pE.className = 'm-val ' + (s.total_pnl >= 0 ? 'up' : 'dn');
+        
+        const rE = document.getElementById('roi');
+        rE.textContent = 'ROI: ' + (s.roi >= 0 ? '+' : '') + s.roi.toFixed(2) + '%';
+        rE.className = 'm-sub ' + (s.roi >= 0 ? 'up' : 'dn');
+        
+        document.getElementById('tradesTotal').textContent = s.trades_total;
+        document.getElementById('openTrades').textContent = 'Open: ' + s.open_trades;
+        document.getElementById('winRate').textContent = s.win_rate.toFixed(1) + '%';
+        document.getElementById('avgWinLoss').textContent = 'W: ' + formatMoney(s.avg_win) + ' · L: ' + formatMoney(s.avg_loss);
+
+        // Equity
+        equityData = [];
+        if (s.capital) {
+            equityData.push(d.config ? d.config.initial_capital : s.capital);
+            equityData.push(s.capital);
+        }
+        drawEquity(equityData);
+    }
+
+    // Signal
+    if (d.last_signal) {
+        const sig = d.last_signal;
+        const st = sig.signal;
+        const cl = st === 'BUY' ? 'up' : st === 'SELL' ? 'dn' : '';
+        document.getElementById('signalCard').innerHTML = `
+            <div class="sig-row">
+                <div class="sig-type ${cl}">${st}</div>
+                <div class="tag ${st==='BUY'?'t-buy':st==='SELL'?'t-sell':'t-hold'}">${((sig.confidence||0)*100).toFixed(0)}% confidence</div>
+            </div>
+            <div class="sig-grid">
+                <div class="sg-item"><div class="sg-label">Price</div><div class="sg-val">${formatMoney(sig.price||0)}</div></div>
+                <div class="sg-item"><div class="sg-label">RSI</div><div class="sg-val">${(sig.rsi||0).toFixed(1)}</div></div>
+                <div class="sg-item"><div class="sg-label">ADX</div><div class="sg-val">${(sig.adx||0).toFixed(1)}</div></div>
+                <div class="sg-item"><div class="sg-label">ATR</div><div class="sg-val">${formatMoney(sig.atr||0)}</div></div>
+            </div>`;
+    }
+
+    // Config
+    if (d.config) {
+        const c = d.config;
+        const items = [
+            ['Mode', c.mode], ['Exchange', c.exchange], ['Symbol', c.symbol], ['Capital', formatMoney(c.initial_capital)],
+            ['Risk/Trade', (c.risk_per_trade*100)+'%'], ['Max Heat', (c.max_heat*100)+'%'],
+            ['TF Fast', c.tf_fast], ['TF Slow', c.tf_slow],
+            ['R:R', c.rr_ratio], ['Stop ATR ×', c.atr_stop_mult],
+            ['Max Daily Loss', (c.max_daily_loss*100)+'%'], ['Loop', c.loop_interval+'s'],
+        ];
+        document.getElementById('configGrid').innerHTML = items.map(([k,v]) =>
+            `<div class="cfg-row"><span class="cfg-k">${k}</span><span class="cfg-v">${v}</span></div>`
+        ).join('');
+    }
+
+    // Open Trades
+    if (d.open_trades && d.open_trades.length > 0) {
+        document.getElementById('openCount').textContent = d.open_trades.length;
+        document.getElementById('openTradesBody').innerHTML = d.open_trades.map(t => `
+            <tr>
+                <td>${t.id}</td>
+                <td><span class="tag ${t.side==='BUY'?'t-buy':'t-sell'}">${t.side}</span></td>
+                <td>${t.symbol}</td>
+                <td>${formatMoney(t.entry)}</td>
+                <td>${formatMoney(t.stop)}</td>
+                <td>${formatMoney(t.target)}</td>
+                <td>${t.size.toFixed(6)}</td>
+                <td>${formatMoney(t.risk_amount)}</td>
+            </tr>`).join('');
+    } else {
+        document.getElementById('openCount').textContent = '0';
+        document.getElementById('openTradesBody').innerHTML = '<tr><td colspan="8" class="empty">No open positions</td></tr>';
+    }
+
+    // Closed Trades
+    if (d.closed_trades && d.closed_trades.length > 0) {
+        document.getElementById('closedCount').textContent = d.closed_trades.length;
+        document.getElementById('closedTradesBody').innerHTML = d.closed_trades.slice().reverse().map(t => `
+            <tr>
+                <td>${t.id}</td>
+                <td><span class="tag ${t.side==='BUY'?'t-buy':'t-sell'}">${t.side}</span></td>
+                <td>${formatMoney(t.entry)}</td>
+                <td>${formatMoney(t.exit||0)}</td>
+                <td class="${t.pnl>=0?'up':'dn'}">${t.pnl>=0?'+':''}${formatMoney(Math.abs(t.pnl||0))}</td>
+                <td><span class="tag ${t.exit_reason==='TAKE_PROFIT'?'t-tp':'t-sl'}">${t.exit_reason||'—'}</span></td>
+                <td>${t.closed_at ? formatDate(t.closed_at) + ' ' + formatTime(t.closed_at) : '—'}</td>
+            </tr>`).join('');
+    } else {
+        document.getElementById('closedCount').textContent = '0';
+        document.getElementById('closedTradesBody').innerHTML = '<tr><td colspan="7" class="empty">No closed trades</td></tr>';
+    }
+
+    // Signals
+    if (d.signals_history && d.signals_history.length > 0) {
+        document.getElementById('signalsBody').innerHTML = d.signals_history.slice().reverse().slice(0, 50).map(s => `
+            <tr>
+                <td>${formatTime(s.time)}</td>
+                <td><span class="tag ${s.signal==='BUY'?'t-buy':s.signal==='SELL'?'t-sell':'t-hold'}">${s.signal}</span></td>
+                <td>${formatMoney(s.price||0)}</td>
+                <td>${(s.rsi||0).toFixed(1)}</td>
+                <td>${(s.adx||0).toFixed(1)}</td>
+                <td>${((s.confidence||0)*100).toFixed(0)}%</td>
+            </tr>`).join('');
+    }
+}
+
 async function fetchData() {
     try {
         const res = await fetch('/api/status');
+        if (res.status === 401) {
+            window.location.href = '/login';
+            return;
+        }
         const d = await res.json();
-
-        // Status
-        const pill = document.getElementById('statusPill');
-        const st = (d.status || '').toUpperCase();
-        document.getElementById('statusText').textContent = d.status;
-        pill.className = 'pill ' + (st === 'RUNNING' ? 'pill-live' : st.includes('ERROR') || st.includes('BAN') ? 'pill-err' : 'pill-init');
-        document.getElementById('modeTag').textContent = d.config ? d.config.mode + ' · ' + d.config.symbol : '—';
-        document.getElementById('lastUpdate').textContent = d.last_update ? formatTime(d.last_update) : '—';
-        document.getElementById('cycle').textContent = d.cycle || '0';
-        document.getElementById('uptime').textContent = 'Since ' + (d.started_at ? formatDate(d.started_at) : '—');
-
-        // Stats
-        if (d.stats) {
-            const s = d.stats;
-            document.getElementById('capital').textContent = '$' + s.capital.toFixed(2);
-            document.getElementById('capitalInit').textContent = 'Initial: $' + (d.config ? d.config.initial_capital : '—');
-            const pE = document.getElementById('pnl');
-            pE.textContent = (s.total_pnl >= 0 ? '+' : '') + '$' + Math.abs(s.total_pnl).toFixed(2);
-            pE.className = 'm-val ' + (s.total_pnl >= 0 ? 'up' : 'dn');
-            const rE = document.getElementById('roi');
-            rE.textContent = 'ROI: ' + (s.roi >= 0 ? '+' : '') + s.roi.toFixed(2) + '%';
-            rE.className = 'm-sub ' + (s.roi >= 0 ? 'up' : 'dn');
-            document.getElementById('tradesTotal').textContent = s.trades_total;
-            document.getElementById('openTrades').textContent = 'Open: ' + s.open_trades;
-            document.getElementById('winRate').textContent = s.win_rate.toFixed(1) + '%';
-            document.getElementById('avgWinLoss').textContent = 'W: $' + s.avg_win.toFixed(2) + ' · L: $' + s.avg_loss.toFixed(2);
-
-            // Equity
-            if (s.capital && !equityData.length) equityData.push(d.config ? d.config.initial_capital : s.capital);
-            if (s.capital) equityData.push(s.capital);
-            if (equityData.length > 500) equityData = equityData.slice(-500);
-            drawEquity(equityData);
-        }
-
-        // Signal
-        if (d.last_signal) {
-            const sig = d.last_signal;
-            const st = sig.signal;
-            const cl = st === 'BUY' ? 'up' : st === 'SELL' ? 'dn' : '';
-            document.getElementById('signalCard').innerHTML = `
-                <div class="sig-row">
-                    <div class="sig-type ${cl}">${st}</div>
-                    <div class="tag ${st==='BUY'?'t-buy':st==='SELL'?'t-sell':'t-hold'}">${((sig.confidence||0)*100).toFixed(0)}% confidence</div>
-                </div>
-                <div class="sig-grid">
-                    <div class="sg-item"><div class="sg-label">Price</div><div class="sg-val">$${(sig.price||0).toFixed(2)}</div></div>
-                    <div class="sg-item"><div class="sg-label">RSI</div><div class="sg-val">${(sig.rsi||0).toFixed(1)}</div></div>
-                    <div class="sg-item"><div class="sg-label">ADX</div><div class="sg-val">${(sig.adx||0).toFixed(1)}</div></div>
-                    <div class="sg-item"><div class="sg-label">ATR</div><div class="sg-val">${(sig.atr||0).toFixed(2)}</div></div>
-                </div>`;
-        }
-
-        // Config
-        if (d.config) {
-            const c = d.config;
-            const items = [
-                ['Mode', c.mode], ['Exchange', c.exchange], ['Symbol', c.symbol], ['Capital', '$'+c.initial_capital],
-                ['Risk/Trade', (c.risk_per_trade*100)+'%'], ['Max Heat', (c.max_heat*100)+'%'],
-                ['TF Fast', c.tf_fast], ['TF Slow', c.tf_slow],
-                ['R:R', c.rr_ratio], ['Stop ATR ×', c.atr_stop_mult],
-                ['Max Daily Loss', (c.max_daily_loss*100)+'%'], ['Loop', c.loop_interval+'s'],
-            ];
-            document.getElementById('configGrid').innerHTML = items.map(([k,v]) =>
-                `<div class="cfg-row"><span class="cfg-k">${k}</span><span class="cfg-v">${v}</span></div>`
-            ).join('');
-        }
-
-        // Open Trades
-        if (d.open_trades && d.open_trades.length > 0) {
-            document.getElementById('openCount').textContent = d.open_trades.length;
-            document.getElementById('openTradesBody').innerHTML = d.open_trades.map(t => `
-                <tr>
-                    <td>${t.id}</td>
-                    <td><span class="tag ${t.side==='BUY'?'t-buy':'t-sell'}">${t.side}</span></td>
-                    <td>${t.symbol}</td>
-                    <td>$${t.entry.toFixed(2)}</td>
-                    <td>$${t.stop.toFixed(2)}</td>
-                    <td>$${t.target.toFixed(2)}</td>
-                    <td>${t.size.toFixed(6)}</td>
-                    <td>$${t.risk_amount.toFixed(2)}</td>
-                </tr>`).join('');
-        } else {
-            document.getElementById('openCount').textContent = '0';
-            document.getElementById('openTradesBody').innerHTML = '<tr><td colspan="8" class="empty">No open positions</td></tr>';
-        }
-
-        // Closed Trades
-        if (d.closed_trades && d.closed_trades.length > 0) {
-            document.getElementById('closedCount').textContent = d.closed_trades.length;
-            document.getElementById('closedTradesBody').innerHTML = d.closed_trades.slice().reverse().map(t => `
-                <tr>
-                    <td>${t.id}</td>
-                    <td><span class="tag ${t.side==='BUY'?'t-buy':'t-sell'}">${t.side}</span></td>
-                    <td>$${t.entry.toFixed(2)}</td>
-                    <td>$${(t.exit||0).toFixed(2)}</td>
-                    <td class="${t.pnl>=0?'up':'dn'}">${t.pnl>=0?'+':''}$${(t.pnl||0).toFixed(2)}</td>
-                    <td><span class="tag ${t.exit_reason==='TAKE_PROFIT'?'t-tp':'t-sl'}">${t.exit_reason||'—'}</span></td>
-                    <td>${t.closed_at ? formatDate(t.closed_at) + ' ' + formatTime(t.closed_at) : '—'}</td>
-                </tr>`).join('');
-        } else {
-            document.getElementById('closedCount').textContent = '0';
-            document.getElementById('closedTradesBody').innerHTML = '<tr><td colspan="7" class="empty">No closed trades</td></tr>';
-        }
-
-        // Signals
-        if (d.signals_history && d.signals_history.length > 0) {
-            document.getElementById('signalsBody').innerHTML = d.signals_history.slice().reverse().slice(0, 50).map(s => `
-                <tr>
-                    <td>${formatTime(s.time)}</td>
-                    <td><span class="tag ${s.signal==='BUY'?'t-buy':s.signal==='SELL'?'t-sell':'t-hold'}">${s.signal}</span></td>
-                    <td>$${(s.price||0).toFixed(2)}</td>
-                    <td>${(s.rsi||0).toFixed(1)}</td>
-                    <td>${(s.adx||0).toFixed(1)}</td>
-                    <td>${((s.confidence||0)*100).toFixed(0)}%</td>
-                </tr>`).join('');
-        }
+        lastFetchedData = d;
+        renderData(d);
     } catch (e) { console.error('Fetch error:', e); }
 }
 
@@ -393,12 +511,34 @@ window.addEventListener('resize', () => { if (equityData.length) drawEquity(equi
 </html>
 """
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    error = None
+    if request.method == 'POST':
+        # Simple hardcoded credentials as requested
+        if request.form.get('username') == 'nolex' and request.form.get('password') == 'apexbot':
+            session['logged_in'] = True
+            return redirect(url_for('index'))
+        else:
+            error = 'Identifiants ou mot de passe incorrects.'
+    return render_template_string(LOGIN_HTML, error=error)
+
+@app.route('/logout')
+def logout():
+    session.pop('logged_in', None)
+    return redirect(url_for('login'))
+
 @app.route('/')
 def index():
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
     return render_template_string(DASHBOARD_HTML)
 
 @app.route('/api/status')
 def api_status():
+    if not session.get('logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
+        
     from config import Config
 
     stats = {}
