@@ -85,7 +85,7 @@ def run_analysis_cycle():
         if len(bot_state["signals_history"]) > 200:
             bot_state["signals_history"] = bot_state["signals_history"][-200:]
 
-        if signal["signal"] in ("BUY", "SELL") and signal["confidence"] >= 0.66:
+        if signal["signal"] in ("BUY", "SELL") and signal["confidence"] >= Config.MIN_CONFIDENCE:
             can_trade, reason = rm.can_open_trade()
             if can_trade:
                 ex.open_position(signal)

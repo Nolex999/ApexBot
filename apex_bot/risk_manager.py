@@ -14,6 +14,7 @@ class RiskManager:
         self.last_reset_day = datetime.now().date()
         self.last_reset_week = datetime.now().isocalendar()[1]
         self.trading_halted = False
+        self.last_sl_time = None   # timestamp dernier stop loss
     
     def calculate_position_size(self, entry_price: float, stop_price: float) -> float:
         """Calcule la taille de position basée sur le risk % du capital"""
@@ -29,8 +30,16 @@ class RiskManager:
     def can_open_trade(self) -> tuple[bool, str]:
         self._check_resets()
         
+        # Cooldown post-SL
+        if self.last_sl_time is not None:
+            elapsed = datetime.now() - self.last_sl_time
+            cooldown = timedelta(minutes=self.cfg.COOLDOWN_AFTER_SL_MINUTES)
+            if elapsed < cooldown:
+                remaining = (cooldown - elapsed).total_seconds() / 60
+                return False, f"Cooldown post-SL: {remaining:.1f}min restantes"
+
         if self.trading_halted:
-            return False, "🛑 TRADING HALTED — Circuit breaker activé"
+            return False, "Trading HALTED - Circuit breaker active"
         
         if len(self.open_trades) >= self.cfg.MAX_CONCURRENT_TRADES:
             return False, f"Max trades simultanés atteint ({self.cfg.MAX_CONCURRENT_TRADES})"
@@ -71,6 +80,9 @@ class RiskManager:
         self.daily_pnl += pnl
         self.weekly_pnl += pnl
         
+        if reason == "STOP_LOSS":
+            self.last_sl_time = datetime.now()
+
         self.open_trades.remove(trade)
         self.closed_trades.append(trade)
         return trade
